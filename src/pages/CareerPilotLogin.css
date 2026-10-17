@@ -1,0 +1,106 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap");
+/* Every rule lives under .cpa so it cannot affect the rest of the app */
+.cpa{--ink:#070B1A;--text:#475069;--mute:#7B849A;--line:#E6E9F2;--ind:#4F3BF5;
+  display:grid;grid-template-columns:1fr 1fr;min-height:100vh;font-family:"DM Sans",system-ui,sans-serif;color:var(--ink);background:#fff;line-height:1.6;-webkit-font-smoothing:antialiased}
+.cpa *{box-sizing:border-box;margin:0;padding:0}
+.cpa a{color:inherit;text-decoration:none}
+.cpa :focus-visible{outline:3px solid #8A7BFF;outline-offset:3px;border-radius:10px}
+.cpa .cpa-i{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* ---------- left ---------- */
+.cpa .cpa-left{position:relative;overflow:hidden;color:#fff;padding:70px 70px 40px;display:flex;flex-direction:column;justify-content:space-between;gap:36px;
+  background:
+   radial-gradient(520px 360px at 0% 0%,rgba(120,140,255,.5),transparent 70%),
+   repeating-linear-gradient(0deg,rgba(255,255,255,.035) 0 1px,transparent 1px 44px),
+   repeating-linear-gradient(90deg,rgba(255,255,255,.035) 0 1px,transparent 1px 44px),
+   linear-gradient(160deg,#4B3AF5 0%,#5E2BEA 55%,#7B2FE8 100%)}
+.cpa .cpa-logo{display:inline-flex;align-items:center;gap:14px;font-weight:600;font-size:1.3rem;letter-spacing:-.01em}
+.cpa .cpa-logo b{width:52px;height:52px;border-radius:16px;display:grid;place-items:center;font-size:1.5rem;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.28);box-shadow:0 10px 24px -10px rgba(0,0,0,.4)}
+.cpa .cpa-pill{display:inline-flex;align-items:center;gap:10px;margin:36px 0 34px;padding:10px 18px;border-radius:999px;border:1px solid rgba(255,255,255,.28);background:rgba(255,255,255,.08);font-size:.8rem;font-weight:600;letter-spacing:.16em;text-transform:uppercase}
+.cpa .cpa-left h2{font-size:clamp(2.2rem,3.6vw,3.4rem);line-height:1.12;letter-spacing:-.04em;font-weight:700;max-width:12em}
+.cpa .cpa-left .cpa-top>p{margin-top:28px;font-size:1.2rem;line-height:1.85;color:rgba(255,255,255,.78);max-width:30em}
+
+.cpa .cpa-glass{max-width:560px;border-radius:34px;padding:24px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);backdrop-filter:blur(10px);box-shadow:0 30px 60px -30px rgba(10,5,70,.6)}
+.cpa .cpa-gh{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px}
+.cpa .cpa-gh small{display:block;font-size:.72rem;letter-spacing:.16em;font-weight:600;color:rgba(255,255,255,.85)}
+.cpa .cpa-gh strong{font-size:1.15rem;font-weight:600}
+.cpa .cpa-upd{padding:7px 14px;border-radius:999px;background:rgba(80,230,190,.22);color:#7DF0CC;font-size:.8rem;font-weight:600}
+.cpa .cpa-grid2{display:grid;grid-template-columns:1fr 1.1fr;gap:14px;margin-bottom:14px}
+.cpa .cpa-tile{border-radius:24px;padding:18px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14)}
+.cpa .cpa-trow{display:flex;justify-content:space-between;align-items:center}
+.cpa .cpa-trow small{font-size:.8rem;color:rgba(255,255,255,.85)}
+.cpa .cpa-sq{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:rgba(255,255,255,.16)}
+.cpa .cpa-big{font-size:2.6rem;font-weight:700;letter-spacing:-.03em;line-height:1.1;margin:18px 0 14px}
+.cpa .cpa-big sup{font-size:1rem;vertical-align:baseline;color:rgba(255,255,255,.85)}
+.cpa .cpa-bar{height:6px;border-radius:9px;background:rgba(255,255,255,.2)}
+.cpa .cpa-bar span{display:block;height:100%;border-radius:9px;background:linear-gradient(90deg,#8FD4FF,#B7A8FF)}
+.cpa .cpa-ttl{display:flex;align-items:center;gap:10px;font-weight:600;font-size:.92rem;margin-bottom:14px}
+.cpa .cpa-li{display:flex;justify-content:space-between;font-size:.8rem;color:rgba(255,255,255,.8);margin:12px 0}
+.cpa .cpa-li b{color:#fff}
+.cpa .cpa-gith .cpa-okc{margin-left:auto;color:#6FF0C8;font-size:1.2rem}
+.cpa .cpa-chips{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.cpa .cpa-chips div{text-align:center;border-radius:14px;padding:12px 6px;background:rgba(255,255,255,.1)}
+.cpa .cpa-chips small{display:block;font-size:.72rem;color:rgba(255,255,255,.75)}
+.cpa .cpa-chips b{font-size:.75rem;font-weight:600}
+.cpa .cpa-chips b.v{color:#7DF0CC}.cpa .cpa-chips b.p{color:#FFE27A}
+.cpa .cpa-foot{font-size:.95rem;color:rgba(255,255,255,.6)}
+
+/* ---------- right ---------- */
+.cpa .cpa-right{display:flex;align-items:center;justify-content:center;padding:48px 32px;background:
+   radial-gradient(500px 360px at 95% 0%,rgba(79,59,245,.07),transparent 70%),
+   radial-gradient(500px 400px at 10% 90%,rgba(79,59,245,.05),transparent 70%),#FAFBFF}
+.cpa .cpa-form{width:100%;max-width:560px}
+.cpa .cpa-mobile-logo{display:none;color:var(--ink);margin-bottom:36px}
+.cpa .cpa-mobile-logo b{background:linear-gradient(135deg,#5B3BF5,#8B3FF0);color:#fff;border:0;width:44px;height:44px}
+.cpa .cpa-eyebrow{display:block;font-size:.85rem;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--ind);margin-bottom:14px}
+.cpa h1{font-size:clamp(2rem,3.2vw,3rem);line-height:1.12;letter-spacing:-.04em;font-weight:700}
+.cpa .cpa-sub{margin:18px 0 48px;font-size:1.1rem;color:var(--text)}
+.cpa label{display:block;font-weight:600;font-size:1.02rem;margin:0 0 14px}
+.cpa .cpa-field{display:flex;align-items:center;gap:14px;height:60px;padding:0 22px;margin-bottom:28px;border:1px solid var(--line);border-radius:18px;background:#fff;color:var(--mute);font-size:1.3rem;transition:border-color .2s,box-shadow .2s}
+.cpa .cpa-field:focus-within{border-color:var(--ind);box-shadow:0 0 0 4px rgba(79,59,245,.14);color:var(--ind)}
+.cpa .cpa-field.bad{border-color:#C23B3B}
+.cpa .cpa-field input{flex:1;min-width:0;height:100%;border:0;outline:0;background:transparent;font:400 1.05rem "DM Sans",system-ui,sans-serif;color:var(--ink)}
+.cpa .cpa-field input::placeholder{color:#9AA3B8}
+.cpa .cpa-eye{border:0;background:none;color:var(--mute);font-size:1.3rem;cursor:pointer;display:grid;place-items:center;padding:4px}
+.cpa .cpa-eye:hover{color:var(--ink)}
+.cpa .cpa-err{color:#C23B3B;font-size:.88rem;margin:-18px 0 22px}
+.cpa .cpa-formerr{margin:0 0 18px;padding:12px 16px;border-radius:12px;background:#FDECEC}
+.cpa .cpa-submit{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;height:60px;margin:0;border:0;border-radius:18px;background:var(--ink);color:#fff;font:600 1.1rem "DM Sans",system-ui,sans-serif;cursor:pointer;box-shadow:0 18px 34px -14px rgba(7,11,26,.55);transition:transform .15s,opacity .2s}
+.cpa .cpa-submit:hover{transform:translateY(-2px)}
+.cpa .cpa-submit:disabled{opacity:.7;cursor:progress;transform:none}
+.cpa .cpa-alt{text-align:center;margin:30px 0 26px;font-size:1.05rem;color:var(--text)}
+.cpa .cpa-alt a{color:var(--ind);font-weight:600}
+.cpa .cpa-alt a:hover{text-decoration:underline}
+.cpa .cpa-home{display:flex;align-items:center;justify-content:center;gap:8px;color:var(--mute);font-size:.95rem}
+.cpa .cpa-home:hover{color:var(--ink)}
+
+@media(max-width:1000px){
+  .cpa{grid-template-columns:1fr}
+  .cpa .cpa-left{display:none}
+  .cpa .cpa-mobile-logo{display:inline-flex}
+  .cpa .cpa-right{align-items:flex-start;padding-top:40px}
+}
+@media(prefers-reduced-motion:reduce){.cpa *{transition:none!important}}
+
+/* ---------- signup extras (same .cpa scope) ---------- */
+.cpa .cpa-feats{display:grid;gap:16px;max-width:720px}
+.cpa .cpa-feat{display:flex;gap:20px;align-items:center;padding:20px 22px;border-radius:26px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18)}
+.cpa .cpa-feat .cpa-sq{width:52px;height:52px;border-radius:16px;font-size:1.4rem;flex:none}
+.cpa .cpa-feat h3{font-size:1.1rem;font-weight:600;display:flex;gap:10px;align-items:center}
+.cpa .cpa-feat h3 .cpa-i{color:#6FF0C8;font-size:1rem}
+.cpa .cpa-feat p{margin-top:2px;font-size:.95rem;color:rgba(255,255,255,.78)}
+.cpa .cpa-two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:30px}
+.cpa .cpa-two>div{min-width:0}
+.cpa .cpa-two .cpa-field{padding:0 18px;gap:12px}
+.cpa .cpa-terms{display:flex;align-items:center;gap:14px;margin:2px 0 26px;font-size:.95rem;color:var(--text);font-weight:400;cursor:pointer}
+.cpa .cpa-terms input{appearance:none;-webkit-appearance:none;width:22px;height:22px;border:1.5px solid #7B849A;border-radius:6px;background:#fff;display:grid;place-items:center;cursor:pointer;flex:none;margin:0}
+.cpa .cpa-terms input:checked{background:var(--ind);border-color:var(--ind)}
+.cpa .cpa-terms input:checked::after{content:"";width:6px;height:11px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg) translate(-1px,-1px)}
+.cpa .cpa-terms a{color:var(--ind);font-weight:600}
+.cpa .cpa-terms a:hover{text-decoration:underline}
+.cpa .cpa-terms.bad input{border-color:#C23B3B}
+@media(max-width:600px){.cpa .cpa-two{grid-template-columns:1fr;gap:0}}
+
+/* logo, pill and heading stack vertically (fixes logo/pill overlap) */
+.cpa .cpa-top{display:flex;flex-direction:column;align-items:flex-start}
+.cpa .cpa-pill{width:fit-content}

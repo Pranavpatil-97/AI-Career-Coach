@@ -1,0 +1,12 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --color-brand: #6366F1; --color-violet: #8B5CF6; --color-cyan: #22D3EE;
+  --color-ink: #111827; --color-muted: #64748B; --color-deep: #0B1020; --color-canvas: #F8FAFC;
+  --color-ok: #22C55E; --color-warn: #F59E0B; --color-bad: #EF4444;
+}
+body { @apply bg-canvas text-ink font-sans antialiased dark:bg-deep dark:text-slate-100; }
+:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

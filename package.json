@@ -1,0 +1,30 @@
+{
+  "name": "careerpilot-ai",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install && npm install --prefix server",
+    "dev": "concurrently -k -n API,WEB -c blue,green \"npm run dev --prefix server\" \"npm run dev:web\"",
+    "start": "npm run start --prefix server",
+    "build": "vite build",
+    "preview": "vite preview",
+    "dev:web": "vite --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "axios": "^1.7.9",
+    "lucide-react": "^0.453.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^6.30.6",
+    "recharts": "^2.13.0",
+    "tailwindcss": "^4.0.0",
+    "vite": "^6.0.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "type": "module"
+}
