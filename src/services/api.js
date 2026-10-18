@@ -18,7 +18,13 @@ export const getHealth = () => get('/health')
 export const getDemo = () => get('/demo')
 export const getSummary = () => get('/summary')
 export const disconnectGithub = () => post('/github/disconnect', {})
-export const connectGithub = () => { window.location.href = `${base}/auth/github` }
+export const connectGithub = (username = '', returnTo = '') => {
+  const params = new URLSearchParams()
+  if (username.trim()) params.set('login', username.trim())
+  if (returnTo) params.set('returnTo', returnTo)
+  const query = params.toString()
+  window.location.href = `${base}/auth/github${query ? `?${query}` : ''}`
+}
 export const fetchJobs = (search) => post('/jobs/fetch', { search })
 export const getGaps = () => get('/jobs/gaps')
 export const askCareerCoach = (message) => post('/ai/coach', { message })

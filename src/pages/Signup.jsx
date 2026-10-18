@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import "./CareerPilotLogin.css"; // shared auth styles (login + signup)
 import { useAuth } from "../context/AuthContext";
+import { getGithubStatus } from "../services/api";
 
 const PATHS = {
   target: <><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" /></>,
@@ -93,7 +94,12 @@ export default function Signup({
     try {
       if (onSignup) await onSignup({ name: form.name.trim(), email: form.email.trim(), password: form.password });
       else await signUp({ name: form.name.trim(), email: form.email.trim(), password: form.password });
-      navigate(location.state?.from?.pathname || redirectTo, { replace: true });
+      const destination = location.state?.from?.pathname || redirectTo;
+      let githubConnected = false;
+      try {
+        githubConnected = (await getGithubStatus()).connected;
+      } catch {}
+      navigate(githubConnected ? destination : `/connect-github?next=${encodeURIComponent(destination)}`, { replace: true });
     } catch (err) {
       setFormError(err?.message || "Could not create your account. Please try again.");
     } finally {

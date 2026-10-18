@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { getGithubStatus } from "../services/api";
 import "./CareerPilotLogin.css";
 
 const PATHS = {
@@ -60,7 +61,12 @@ export default function Login({
     try {
       if (onLogin) await onLogin({ email: email.trim(), password });
       else await signIn({ email: email.trim(), password });
-      navigate(location.state?.from?.pathname || redirectTo, { replace: true });
+      const destination = location.state?.from?.pathname || redirectTo;
+      let githubConnected = false;
+      try {
+        githubConnected = (await getGithubStatus()).connected;
+      } catch {}
+      navigate(githubConnected ? destination : `/connect-github?next=${encodeURIComponent(destination)}`, { replace: true });
     } catch (err) {
       setFormError(err?.message || "Could not sign in. Check your details and try again.");
     } finally {

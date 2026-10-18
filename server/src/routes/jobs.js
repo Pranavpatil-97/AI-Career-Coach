@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import axios from 'axios';
-import { buildGaps } from '../lib/gaps.js';
+import { buildGaps, toEvidenceCitation } from '../lib/gaps.js';
+import { extractJobSkills } from '../lib/llm.js';
 
 const JOB_SKILLS = {
   Python: /\bpython\b/i, JavaScript: /\bjavascript\b|\becmascript\b/i, TypeScript: /\btypescript\b/i,
@@ -54,9 +55,50 @@ export function createJobsRouter({
   ingestJob,
   scanRepo,
   extractJobRequirements,
+  extractSkills = extractJobSkills,
 }) {
   const router = Router();
   router.use(requireAuth);
+
+  async function ensureRequirements(source) {
+    if (source.requirementsAnalyzedAt) {
+      return Requirement.find({ sourceId: source._id }).lean();
+    }
+
+    let extracted;
+    try {
+      extracted = await extractSkills(source.postingText || '');
+    } catch (error) {
+      console.error('LLM extraction failed, falling back:', error.message);
+      extracted = extractJobRequirements(source.postingText || '', source._id);
+    }
+
+    const knownSkills = new Map(skills.map((skill) => [skill.label.toLowerCase(), skill]));
+    const bySkill = new Map();
+    for (const item of extracted) {
+      const itemLabel = item?.name || item?.label;
+      if (typeof itemLabel !== 'string' || typeof item.quote !== 'string' || !item.quote.trim()) continue;
+      const label = itemLabel.trim();
+      const skill = knownSkills.get(label.toLowerCase());
+      const skillKey = skill?.key || label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      if (!skillKey) continue;
+      bySkill.set(skillKey, {
+        sourceId: source._id,
+        skillKey,
+        label: skill?.label || label,
+        level: (item.importance || item.level) === 'required' ? 'required' : 'preferred',
+        category: typeof item.category === 'string' ? item.category.trim() : undefined,
+        quote: item.quote,
+      });
+    }
+
+    const requirements = [...bySkill.values()];
+    await Requirement.deleteMany({ sourceId: source._id });
+    if (requirements.length) await Requirement.insertMany(requirements);
+    source.requirementsAnalyzedAt = new Date();
+    await source.save();
+    return requirements;
+  }
 
   router.post('/fetch', async (req, res, next) => {
     try {
@@ -119,8 +161,8 @@ export function createJobsRouter({
         jobs.push({
           ...source,
           description: source.postingText || '',
-          required: requirements.filter((requirement) => requirement.level === 'required').map((requirement) => requirement.label),
-          preferred: requirements.filter((requirement) => requirement.level !== 'required').map((requirement) => requirement.label),
+          required: requirements.filter((requirement) => requirement.level === 'required'),
+          preferred: requirements.filter((requirement) => requirement.level !== 'required'),
         });
       }
 
@@ -132,12 +174,7 @@ export function createJobsRouter({
       const skillLabels = new Map(skills.map((skill) => [skill.key, skill.label]));
       const evidence = evidenceRows.map((item) => ({
         skill: skillLabels.get(item.skillKey) || item.skillKey,
-        repo: item.repository,
-        path: item.filePath,
-        snippet: item.excerpt,
-        commitSha: item.commitSha,
-        commitUrl: item.url,
-        kind: 'usage',
+        ...toEvidenceCitation(item),
       }));
       const repos = [...new Set(latestAssessments.map((assessment) => assessment.repository))];
       res.json(buildGaps({ jobs, evidence, scope: { repos }, skillPatterns: JOB_SKILLS }));
@@ -196,6 +233,7 @@ export function createJobsRouter({
       if (!user?.selectedRepos?.length) {
         return res.status(400).json({ error: 'Select at least one GitHub repository before analyzing a job.' });
       }
+      await ensureRequirements(source);
       const results = [];
       for (const repo of user.selectedRepos) {
         results.push(await scanRepo(req.userId, repo, source._id, 'manual'));

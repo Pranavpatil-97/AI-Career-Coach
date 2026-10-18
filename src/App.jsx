@@ -6,6 +6,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import CareerPilotLanding from "./pages/CareerPilotLanding";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import ConnectGithub from "./pages/ConnectGithub";
 
 import Dashboard from "./pages/Dashboard";
 import Jobs from "./pages/Jobs";
@@ -37,6 +38,7 @@ export default function App() {
       <Route path="/" element={<LandingRoute />} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
+      <Route path="/connect-github" element={<ProtectedRoute><ConnectGithub /></ProtectedRoute>} />
 
       {/* Existing application pages and dashboard layout */}
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>

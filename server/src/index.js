@@ -12,6 +12,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
 import dns from 'node:dns';
 import { createJobsRouter } from './routes/jobs.js';
+import { toEvidenceCitation } from './lib/gaps.js';
 import aiRoutes from './routes/ai.js';
 dns.setServers(['8.8.8.8', '8.8.4.4']);
 import net from 'node:net';
@@ -24,7 +25,29 @@ const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
 const API_VERSION = process.env.GITHUB_API_VERSION || '2022-11-28';
 function tokenKey() { const raw = process.env.TOKEN_ENCRYPTION_KEY || ''; if (!/^[a-fA-F0-9]{64}$/.test(raw)) throw new Error('TOKEN_ENCRYPTION_KEY must be a 32-byte key encoded as 64 hex characters.'); return Buffer.from(raw, 'hex'); }
 function encryptToken(token) { const iv = crypto.randomBytes(12); const cipher = crypto.createCipheriv('aes-256-gcm', tokenKey(), iv); const encrypted = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]); return [iv.toString('hex'), cipher.getAuthTag().toString('hex'), encrypted.toString('hex')].join(':'); }
-function decryptToken(value) { const [ivHex, tagHex, dataHex] = String(value || '').split(':'); if (!ivHex || !tagHex || !dataHex) throw new Error('Stored GitHub token is not encrypted with the expected format. Reconnect GitHub.'); const decipher = crypto.createDecipheriv('aes-256-gcm', tokenKey(), Buffer.from(ivHex, 'hex')); decipher.setAuthTag(Buffer.from(tagHex, 'hex')); return Buffer.concat([decipher.update(Buffer.from(dataHex, 'hex')), decipher.final()]).toString('utf8'); }
+const invalidGitHubTokens = new Set();
+const encryptedGitHubTokens = new Map();
+function markGitHubTokenInvalid(storedToken) {
+  invalidGitHubTokens.add(storedToken);
+  User.updateOne({ githubAccessToken: storedToken }, { $set: { githubTokenInvalid: true } }).catch(error => console.error('Could not mark GitHub token invalid:', error.message));
+}
+function decryptToken(value) {
+  const storedToken = String(value || '');
+  const key = tokenKey();
+  try {
+    const [ivHex, tagHex, dataHex] = storedToken.split(':');
+    if (!ivHex || !tagHex || !dataHex) throw new Error('Stored GitHub token is not encrypted with the expected format. Reconnect GitHub.');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+    const token = Buffer.concat([decipher.update(Buffer.from(dataHex, 'hex')), decipher.final()]).toString('utf8');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    encryptedGitHubTokens.set(tokenHash, storedToken);
+    return token;
+  } catch (error) {
+    markGitHubTokenInvalid(storedToken);
+    throw error;
+  }
+}
 const MAX_REPO_FILES = Math.min(Number(process.env.MAX_REPO_FILES || 200), 500);
 const SKILLS = [
   { key: 'sql', label: 'SQL', re: /\b(SELECT\s+.{0,120}?\bFROM\b|INSERT\s+INTO|CREATE\s+TABLE|UPDATE\s+\w+\s+SET|ALTER\s+TABLE)\b/i, exts: /\.(sql|py|js|jsx|ts|tsx)$/i },
@@ -39,9 +62,14 @@ const SKILLS = [
   { key: 'testing', label: 'Testing', re: /\b(describe\(|it\(|test\(|expect\(|assert\.)/, exts: /\.(test|spec)\.(js|jsx|ts|tsx)$/i }
 ];
 const schemaOpts = { timestamps: true, versionKey: false };
-const User = mongoose.model('User', new mongoose.Schema({ githubId: { type: String, unique: true, sparse: true }, login: String, name: String, email: { type: String, unique: true, sparse: true, lowercase: true, trim: true }, passwordHash: { type: String, select: false }, avatarUrl: String, githubAccessToken: { type: String, select: false }, selectedRepos: [{ id: Number, owner: String, name: String, fullName: String, defaultBranch: String, lastAnalyzedSha: String, monitoring: { type: Boolean, default: true } }] }, schemaOpts));
-const Source = mongoose.model('Source', new mongoose.Schema({ title: String, company: String, location: String, type: String, source: String, url: { type: String, required: true }, canonicalUrl: String, retrievedAt: Date, postingText: String, userId: { type: mongoose.Schema.Types.ObjectId, index: true } }, schemaOpts));
-const Requirement = mongoose.model('Requirement', new mongoose.Schema({ sourceId: mongoose.Schema.Types.ObjectId, skillKey: String, label: String, level: { type: String, enum: ['required', 'preferred', 'mentioned'] }, quote: String, quoteStart: Number, quoteEnd: Number }, schemaOpts));
+const userSchema = new mongoose.Schema({ githubId: { type: String, unique: true, sparse: true }, login: String, name: String, email: { type: String, unique: true, sparse: true, lowercase: true, trim: true }, passwordHash: { type: String, select: false }, avatarUrl: String, githubAccessToken: { type: String, select: false }, githubTokenInvalid: { type: Boolean, default: false }, selectedRepos: [{ id: Number, owner: String, name: String, fullName: String, defaultBranch: String, lastAnalyzedSha: String, monitoring: { type: Boolean, default: true } }] }, schemaOpts);
+userSchema.pre('find', function () {
+  if (!Object.hasOwn(this.getQuery(), 'selectedRepos.0')) return;
+  this.where({ githubTokenInvalid: { $ne: true }, ...(invalidGitHubTokens.size ? { githubAccessToken: { $nin: [...invalidGitHubTokens] } } : {}) });
+});
+const User = mongoose.model('User', userSchema);
+const Source = mongoose.model('Source', new mongoose.Schema({ title: String, company: String, location: String, type: String, source: String, url: { type: String, required: true }, canonicalUrl: String, retrievedAt: Date, postingText: String, requirementsAnalyzedAt: Date, userId: { type: mongoose.Schema.Types.ObjectId, index: true } }, schemaOpts));
+const Requirement = mongoose.model('Requirement', new mongoose.Schema({ sourceId: mongoose.Schema.Types.ObjectId, skillKey: String, label: String, level: { type: String, enum: ['required', 'preferred', 'mentioned'] }, category: String, quote: String, quoteStart: Number, quoteEnd: Number }, schemaOpts));
 const Evidence = mongoose.model('Evidence', new mongoose.Schema({ userId: mongoose.Schema.Types.ObjectId, repository: String, skillKey: String, status: String, confidence: Number, filePath: String, startLine: Number, endLine: Number, commitSha: String, excerpt: String, url: String, explanation: String, assessedAt: Date, detector: String, scope: Object }, schemaOpts));
 const Assessment = mongoose.model('Assessment', new mongoose.Schema({ userId: mongoose.Schema.Types.ObjectId, sourceId: mongoose.Schema.Types.ObjectId, repository: String, commitSha: String, version: Number, scope: Object, skills: [{ skillKey: String, skill: String, status: String, confidence: Number, evidenceIds: [mongoose.Schema.Types.ObjectId], explanation: String }], createdBy: String }, schemaOpts));
 const ChangeEvent = mongoose.model('ChangeEvent', new mongoose.Schema({ deliveryId: { type: String, unique: true, sparse: true }, userId: mongoose.Schema.Types.ObjectId, repository: String, beforeSha: String, commitSha: String, files: [String], affectedSkills: [String], beforeAssessmentId: mongoose.Schema.Types.ObjectId, afterAssessmentId: mongoose.Schema.Types.ObjectId, status: String, detectedBy: String, at: Date, error: String }, schemaOpts));
@@ -60,8 +88,19 @@ app.use('/api', rateLimit({ windowMs: 60_000, limit: 180, standardHeaders: 'draf
 app.use('/api/ai', aiRoutes);
 
 const requireUser = requireAuth;
-const github = (token) => axios.create({ baseURL: 'https://api.github.com', timeout: 20000, headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': API_VERSION, Authorization: `Bearer ${token}` } });
-async function getToken(userId) { const user = await User.findById(userId).select('+githubAccessToken'); if (!user?.githubAccessToken) throw new Error('GitHub is not connected.'); return { user, token: decryptToken(user.githubAccessToken) }; }
+const github = (token) => {
+  const client = axios.create({ baseURL: 'https://api.github.com', timeout: 20000, headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': API_VERSION, Authorization: `Bearer ${token}` } });
+  client.interceptors.response.use(undefined, (error) => {
+    if (error.response?.status === 401) {
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      const storedToken = encryptedGitHubTokens.get(tokenHash);
+      if (storedToken) markGitHubTokenInvalid(storedToken);
+    }
+    return Promise.reject(error);
+  });
+  return client;
+};
+async function getToken(userId) { const user = await User.findById(userId).select('+githubAccessToken'); if (!user?.githubAccessToken || user.githubTokenInvalid || invalidGitHubTokens.has(user.githubAccessToken)) throw new Error('Reconnect GitHub to continue.'); return { user, token: decryptToken(user.githubAccessToken) }; }
 function toPublicUser(user) { return { login: user.login, name: user.name, avatarUrl: user.avatarUrl, selectedRepos: user.selectedRepos }; }
 function normalizeSkillStatus(status) { return status === 'not-demonstrated-in-scope' ? 'none' : status; }
 function getAffected(paths = []) { if (!paths.length) return SKILLS.map(s => s.key); const keys = new Set(); for (const p of paths) for (const s of SKILLS) if (s.exts.test(p) || (s.key === 'docker' && /docker/i.test(p))) keys.add(s.key); return [...keys]; }
@@ -211,8 +250,15 @@ app.post('/api/auth/logout', requireAuth, (req, res, next) => {
 });
 app.get('/api/auth/github', (req,res) => {
   if (!process.env.GITHUB_CLIENT_ID || !process.env.GITHUB_CLIENT_SECRET) return res.status(503).json({ error: 'Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in server/.env first.' });
+  const loginHint = typeof req.query.login === 'string' ? req.query.login.trim() : '';
+  if (loginHint && !/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/.test(loginHint)) return res.status(400).json({ error: 'Enter a valid GitHub username.' });
+  const requestedReturnTo = typeof req.query.returnTo === 'string' ? req.query.returnTo : '';
+  const returnTo = requestedReturnTo.startsWith('/') && !requestedReturnTo.startsWith('//') && !requestedReturnTo.includes('\\') && requestedReturnTo.length <= 512 ? requestedReturnTo : '';
   const state = crypto.randomBytes(24).toString('hex'); req.session.oauthState = state;
-  const p = new URLSearchParams({ client_id: process.env.GITHUB_CLIENT_ID, redirect_uri: process.env.GITHUB_CALLBACK_URL || 'http://localhost:5000/api/auth/github/callback', scope: 'read:user repo', state }); res.redirect(`https://github.com/login/oauth/authorize?${p}`);
+  req.session.oauthReturnTo = returnTo;
+  const params = { client_id: process.env.GITHUB_CLIENT_ID, redirect_uri: process.env.GITHUB_CALLBACK_URL || 'http://localhost:5000/api/auth/github/callback', scope: 'read:user repo', state };
+  if (loginHint) params.login = loginHint;
+  const p = new URLSearchParams(params); res.redirect(`https://github.com/login/oauth/authorize?${p}`);
 });
 app.get('/api/auth/github/callback', async (req,res,next) => { try {
   if (!req.query.code || req.query.state !== req.session.oauthState) return res.status(400).send('Invalid GitHub OAuth state. Return to the app and try connecting again.');
@@ -227,35 +273,124 @@ app.get('/api/auth/github/callback', async (req,res,next) => { try {
   const linkedUser = await User.findOne({ githubId });
   let user = req.session.userId ? await User.findById(req.session.userId) : null;
   if (user) {
-    if (linkedUser && String(linkedUser._id) !== String(user._id)) return res.status(409).send('This GitHub account is already connected to a different CareerPilot account.');
+    if (linkedUser && String(linkedUser._id) !== String(user._id)) {
+      const returnTo = req.session.oauthReturnTo || '/settings';
+      delete req.session.oauthState; delete req.session.oauthReturnTo;
+      const params = new URLSearchParams({ error: 'already-linked', next: returnTo });
+      return res.redirect(`${CLIENT_ORIGIN}/connect-github?${params}`);
+    }
     user.githubId = githubId;
     user.login = profile.login;
     user.name = profile.name || profile.login;
     user.avatarUrl = profile.avatar_url;
     user.githubAccessToken = encryptToken(token);
+    user.githubTokenInvalid = false;
     await user.save();
   } else {
-    user = await User.findOneAndUpdate({ githubId }, { $set: { login: profile.login, name: profile.name || profile.login, avatarUrl: profile.avatar_url, githubAccessToken: encryptToken(token) } }, { new: true, upsert: true, setDefaultsOnInsert: true }).select('+githubAccessToken');
+    user = await User.findOneAndUpdate({ githubId }, { $set: { login: profile.login, name: profile.name || profile.login, avatarUrl: profile.avatar_url, githubAccessToken: encryptToken(token), githubTokenInvalid: false } }, { new: true, upsert: true, setDefaultsOnInsert: true }).select('+githubAccessToken');
     req.session.userId = String(user._id);
   }
-  delete req.session.oauthState; res.redirect(`${CLIENT_ORIGIN}/settings?connected=1`);
+  const returnTo = req.session.oauthReturnTo;
+  delete req.session.oauthState; delete req.session.oauthReturnTo;
+  res.redirect(`${CLIENT_ORIGIN}${returnTo || '/settings?connected=1'}`);
 } catch(e) { next(e); } });
 app.get('/api/github/status', async (req,res,next) => {
   try {
     if (!req.session?.userId) return res.json({ connected: false });
     const user = await User.findById(req.session.userId).select('+githubAccessToken');
-    if (!user || !user.githubAccessToken) return res.json({ connected: false });
+    if (!user || !user.githubAccessToken || user.githubTokenInvalid || invalidGitHubTokens.has(user.githubAccessToken)) return res.json({ connected: false });
     res.json({ connected: true, ...toPublicUser(user) });
   } catch (err) {
     next(err);
   }
 });
-app.post('/api/github/disconnect', requireUser, async (req,res,next) => { try { await User.findByIdAndUpdate(req.userId, { $unset: { githubAccessToken: 1 }, $set: { selectedRepos: [] } }); res.json({ ok: true }); } catch(e) { next(e); } });
+app.post('/api/github/disconnect', requireUser, async (req,res,next) => { try { await User.findByIdAndUpdate(req.userId, { $unset: { githubAccessToken: 1, githubTokenInvalid: 1 }, $set: { selectedRepos: [] } }); res.json({ ok: true }); } catch(e) { next(e); } });
 app.get('/api/github/repositories', requireUser, async (req,res,next) => { try { const { token,user } = await getToken(req.userId); const { data, headers } = await github(token).get('/user/repos', { params: { per_page: 100, sort: 'updated', affiliation: 'owner,collaborator,organization_member' } }); const selectedIds = new Set(user.selectedRepos.map(r => String(r.id))); res.json({ repositories: data.map(r => ({ id: r.id, name: r.name, fullName: r.full_name, owner: r.owner.login, private: r.private, defaultBranch: r.default_branch, htmlUrl: r.html_url, description: r.description, language: r.language, updatedAt: r.updated_at, selected: selectedIds.has(String(r.id)), lastAnalyzedSha: user.selectedRepos.find(s => String(s.id) === String(r.id))?.lastAnalyzedSha, monitoring: user.selectedRepos.find(s => String(s.id) === String(r.id))?.monitoring ?? true })), rateLimit: { remaining: Number(headers['x-ratelimit-remaining'] || 0) } }); } catch(e) { next(e); } });
 app.post('/api/github/repositories/select', requireUser, async (req,res,next) => { try { const ids = Array.isArray(req.body.repositoryIds) ? req.body.repositoryIds.slice(0,30).map(Number) : []; const { token } = await getToken(req.userId); const { data } = await github(token).get('/user/repos', { params: { per_page: 100, sort: 'updated', affiliation: 'owner,collaborator,organization_member' } }); const selected = data.filter(r => ids.includes(r.id)).map(r => ({ id: r.id, owner: r.owner.login, name: r.name, fullName: r.full_name, defaultBranch: r.default_branch, monitoring: true, lastAnalyzedSha: '' })); await User.findByIdAndUpdate(req.userId, { selectedRepos: selected }); res.json({ selectedRepos: selected }); } catch(e) { next(e); } });
 app.post('/api/analysis/run', requireUser, async (req,res,next) => { try { const ids = Array.isArray(req.body.repositoryIds) ? req.body.repositoryIds.map(String) : []; const user = await User.findById(req.userId); const repos = user.selectedRepos.filter(r => ids.length ? ids.includes(String(r.id)) || ids.includes(r.fullName) : true); if (!repos.length) return res.status(400).json({ error: 'Select at least one repository first.' }); const results = []; for (const r of repos) results.push(await scanRepo(req.userId, r, null, 'manual')); res.json({ ok: true, count: results.length, assessments: results.map(x => ({ id: x.assessment._id, repository: x.assessment.repository, commitSha: x.assessment.commitSha, version: x.assessment.version, scannedFiles: x.filesScanned })) }); } catch(e) { next(e); } });
-app.get('/api/skills/evidence', requireUser, async (req,res,next) => { try { const latest = await Assessment.aggregate([{ $match: { userId: new mongoose.Types.ObjectId(req.userId) } }, { $sort: { createdAt: -1 } }, { $group: { _id: '$repository', latest: { $first: '$$ROOT' } } }, { $replaceRoot: { newRoot: '$latest' } }]); const ids = latest.flatMap(a => a.skills.flatMap(s => s.evidenceIds || [])); const evs = await Evidence.find({ _id: { $in: ids }, userId: req.userId }).lean(); const byId = new Map(evs.map(e => [String(e._id), e])); const rows = []; for (const a of latest) for (const s of a.skills) { const evidence = (s.evidenceIds || []).map(id => byId.get(String(id))).filter(Boolean).map(e => ({ ...e, repository: e.repository, filePath: e.filePath, url: e.url, startLine: e.startLine, endLine: e.endLine, commitSha: e.commitSha })); rows.push({ skill: s.skill, skillKey: s.skillKey, status: normalizeSkillStatus(s.status), confidence: s.confidence, repository: a.repository, assessedAt: a.createdAt, evidence, explanation: s.explanation }); } res.json(rows); } catch(e) { next(e); } });
-app.get('/api/skills/gaps', requireUser, async (req,res,next) => { try { const sources = await Source.find({ userId: req.userId }).sort({ retrievedAt: -1 }).limit(10).lean(); const out = []; const latest = await Assessment.aggregate([{ $match: { userId: new mongoose.Types.ObjectId(req.userId) } }, { $sort: { createdAt: -1 } }, { $group: { _id: '$repository', latest: { $first: '$$ROOT' } } }, { $replaceRoot: { newRoot: '$latest' } }]); const evidence = await Evidence.find({ userId: req.userId }).sort({ assessedAt: -1 }).lean(); for (const source of sources) { const reqs = await Requirement.find({ sourceId: source._id }).lean(); for (const reqi of reqs) { const skill = latest.flatMap(a => a.skills.map(s => ({ ...s.toObject?.() ?? s, repository: a.repository }))).find(s => s.skillKey === reqi.skillKey); const ev = evidence.filter(e => e.skillKey === reqi.skillKey && latest.some(a => a.repository === e.repository && String(a.commitSha) === String(e.commitSha))).slice(0,3).map(e => ({ ...e, filePath: e.filePath, url: e.url })); out.push({ skill: reqi.label, category: reqi.level, status: normalizeSkillStatus(skill?.status || 'not-demonstrated-in-scope'), quote: reqi.quote, jobUrl: source.url, explanation: skill?.explanation || 'No matching evidence was found in the selected and scanned repositories. This is not a claim that you lack the skill.', nextStep: skill?.status === 'demonstrated' ? 'Keep this evidence current and consider adding tests or documentation.' : `Consider adding a small project example that demonstrates ${reqi.label}.`, evidence: ev }); } } res.json(out); } catch(e) { next(e); } });
+app.get('/api/skills/evidence', requireUser, async (req, res, next) => {
+  try {
+    const latest = await Assessment.aggregate([
+      { $match: { userId: new mongoose.Types.ObjectId(req.userId) } },
+      { $sort: { createdAt: -1 } },
+      { $group: { _id: '$repository', latest: { $first: '$$ROOT' } } },
+      { $replaceRoot: { newRoot: '$latest' } },
+    ]);
+    const ids = latest.flatMap((assessment) => assessment.skills.flatMap((skill) => skill.evidenceIds || []));
+    const evs = await Evidence.find({ _id: { $in: ids }, userId: req.userId }).lean();
+    const byId = new Map(evs.map((item) => [String(item._id), item]));
+    const rows = [];
+    for (const assessment of latest) {
+      for (const skill of assessment.skills) {
+        const evidence = (skill.evidenceIds || [])
+          .map((id) => byId.get(String(id)))
+          .filter(Boolean)
+          .map(toEvidenceCitation);
+        rows.push({
+          skill: skill.skill,
+          skillKey: skill.skillKey,
+          status: normalizeSkillStatus(skill.status),
+          confidence: skill.confidence,
+          repository: assessment.repository,
+          assessedAt: assessment.createdAt,
+          evidence,
+          explanation: skill.explanation,
+        });
+      }
+    }
+    res.json(rows);
+  } catch (error) {
+    next(error);
+  }
+});
+app.get('/api/skills/gaps', requireUser, async (req, res, next) => {
+  try {
+    const sources = await Source.find({ userId: req.userId }).sort({ retrievedAt: -1 }).limit(10).lean();
+    const out = [];
+    const latest = await Assessment.aggregate([
+      { $match: { userId: new mongoose.Types.ObjectId(req.userId) } },
+      { $sort: { createdAt: -1 } },
+      { $group: { _id: '$repository', latest: { $first: '$$ROOT' } } },
+      { $replaceRoot: { newRoot: '$latest' } },
+    ]);
+    const evidenceRows = await Evidence.find({ userId: req.userId }).sort({ assessedAt: -1 }).lean();
+    for (const source of sources) {
+      const requirements = await Requirement.find({ sourceId: source._id }).lean();
+      for (const requirement of requirements) {
+        const skill = latest
+          .flatMap((assessment) => assessment.skills.map((item) => ({ ...item, repository: assessment.repository })))
+          .find((item) => item.skillKey === requirement.skillKey);
+        const evidence = evidenceRows
+          .filter((item) => item.skillKey === requirement.skillKey
+            && latest.some((assessment) => assessment.repository === item.repository
+              && String(assessment.commitSha) === String(item.commitSha)))
+          .map(toEvidenceCitation)
+          .filter((item) => item.filePath && item.excerpt && Number.isFinite(item.startLine));
+        const uniqueEvidence = [...new Map(
+          evidence.map((item) => [`${item.filePath}:${item.startLine}`, item])
+        ).values()].slice(0, 5);
+        const status = uniqueEvidence.length ? 'demonstrated' : 'not_demonstrated';
+        out.push({
+          skill: requirement.label,
+          category: requirement.category || requirement.level,
+          status,
+          quote: requirement.quote,
+          jobUrl: source.url,
+          explanation: uniqueEvidence.length
+            ? skill?.explanation || `Found ${uniqueEvidence.length} valid code citation(s).`
+            : 'No valid code evidence was found in the selected and scanned repositories. This is not a claim that you lack the skill.',
+          nextStep: status === 'demonstrated'
+            ? 'Keep this evidence current and consider adding tests or documentation.'
+            : `Consider adding a small project example that demonstrates ${requirement.label}.`,
+          evidence: uniqueEvidence,
+        });
+      }
+    }
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+});
 app.get('/api/changes', requireUser, async (req,res,next) => { try { const rows = await ChangeEvent.find({ userId: req.userId }).sort({ at: -1 }).limit(50).lean(); const out = await Promise.all(rows.map(async e => { const [before, after] = await Promise.all([e.beforeAssessmentId ? Assessment.findById(e.beforeAssessmentId).lean() : null, e.afterAssessmentId ? Assessment.findById(e.afterAssessmentId).lean() : null]); const changes = []; if (before && after) for (const s of after.skills) { const old = before.skills.find(x => x.skillKey === s.skillKey); if (old && old.status !== s.status) changes.push({ skill: s.skill, before: normalizeSkillStatus(old.status), after: normalizeSkillStatus(s.status) }); } const ev = after ? await Evidence.find({ userId: req.userId, repository: e.repository, commitSha: e.commitSha }).lean() : []; return { id: String(e._id), repository: e.repository, commitSha: e.commitSha, previousSha: e.beforeSha, files: e.files || [], status: e.status === 'completed' ? 'completed' : e.status === 'failed' ? 'failed' : 'running', at: e.at, changes, citations: ev.map(x => ({ ...x, filePath: x.filePath, url: x.url })) }; })); res.json(out); } catch(e) { next(e); } });
 app.get('/api/summary', requireUser, async (req,res,next) => { try { const user = await User.findById(req.userId); const jobs = await Source.find({ userId: req.userId }).sort({ retrievedAt: -1 }).limit(5).lean(); const latest = await Assessment.aggregate([{ $match: { userId: new mongoose.Types.ObjectId(req.userId) } }, { $sort: { createdAt: -1 } }, { $group: { _id: '$repository', latest: { $first: '$$ROOT' } } }, { $replaceRoot: { newRoot: '$latest' } }]); const skills = latest.flatMap(a => a.skills); const gaps = await (async () => { const arr=[]; for (const j of jobs) { const rs=await Requirement.find({sourceId:j._id}).lean(); for (const r of rs) { const s=skills.find(x=>x.skillKey===r.skillKey); if (!s || s.status !== 'demonstrated') arr.push({skill:r.label,nextStep:`Build or update a project that demonstrates ${r.label}.`}); } } return arr.slice(0,6); })(); const changes = await ChangeEvent.find({userId:req.userId}).sort({at:-1}).limit(5).lean(); res.json({ repositories: latest.length, jobs: jobs.length, skills: { demonstrated: skills.filter(s=>s.status==='demonstrated').length, partial: skills.filter(s=>s.status==='partial').length, none: skills.filter(s=>s.status==='not-demonstrated-in-scope').length }, activity: [...latest.slice(0,3).map(a=>({id:String(a._id),title:`Analyzed ${a.repository} (v${a.version})`,at:a.createdAt})),...changes.map(c=>({id:String(c._id),title:`${c.status==='completed'?'Reassessed':'Detected change in'} ${c.repository}`,at:c.at}))].sort((a,b)=>new Date(b.at)-new Date(a.at)).slice(0,6), opportunities:jobs.map(j=>({id:String(j._id),title:j.title,company:j.company,url:j.url})), gaps, repoHealth:user.selectedRepos.map(r=>({name:r.fullName,lastCommit:r.lastAnalyzedSha,monitoring:r.monitoring})) }); } catch(e) { next(e); } });
 app.get('/api/demo', requireUser, async (req,res,next) => { try { const change=await ChangeEvent.findOne({userId:req.userId,status:'completed'}).sort({at:-1}).lean(); if(!change) return res.json(null); const after=change.afterAssessmentId?await Assessment.findById(change.afterAssessmentId).lean():null; const before=change.beforeAssessmentId?await Assessment.findById(change.beforeAssessmentId).lean():null; const source=after?.sourceId?await Source.findById(after.sourceId).lean():await Source.findOne({userId:req.userId}).sort({retrievedAt:-1}).lean(); const changes=[]; if(before&&after) for(const s of after.skills){const old=before.skills.find(x=>x.skillKey===s.skillKey);if(old&&old.status!==s.status)changes.push({skill:s.skill,before:normalizeSkillStatus(old.status),after:normalizeSkillStatus(s.status)});} const citations=after?await Evidence.find({userId:req.userId,repository:after.repository,commitSha:after.commitSha}).lean():[]; res.json({step:6,jobUrl:source?.url,jobTitle:source?.title,repository:change.repository,commitSha:change.commitSha,changes,citations}); } catch(e){next(e);} });
@@ -267,7 +402,7 @@ app.post('/api/github/webhook', async (req,res,next) => { try {
   const expected='sha256='+crypto.createHmac('sha256',secret).update(raw).digest('hex'); const a=Buffer.from(expected),b=Buffer.from(sig); if(a.length!==b.length||!crypto.timingSafeEqual(a,b)) return res.status(401).json({error:'Invalid webhook signature.'});
   if(req.get('x-github-event')!=='push') return res.status(202).json({ignored:true}); const payload=JSON.parse(raw.toString('utf8')); const deliveryId=req.get('x-github-delivery');
   if(await ChangeEvent.findOne({deliveryId})) return res.status(200).json({duplicate:true}); if(!payload.repository?.full_name||!payload.after||/^0+$/.test(payload.after)) return res.status(202).json({ignored:true});
-  const user=await User.findOne({selectedRepos:{$elemMatch:{fullName:payload.repository.full_name,monitoring:true}}}).select('+githubAccessToken'); if(!user) return res.status(202).json({ignored:true,reason:'Repository not selected for monitoring.'});
+  const user=await User.findOne({githubTokenInvalid:{$ne:true},selectedRepos:{$elemMatch:{fullName:payload.repository.full_name,monitoring:true}}}).select('+githubAccessToken'); if(!user) return res.status(202).json({ignored:true,reason:'Repository not selected for monitoring.'});
   const files=[...new Set((payload.commits||[]).flatMap(c=>[...(c.added||[]),...(c.modified||[]),...(c.removed||[])]))].slice(0,500); const previous=await Assessment.findOne({userId:user._id,repository:payload.repository.full_name}).sort({version:-1});
   const event=await ChangeEvent.create({deliveryId,userId:user._id,repository:payload.repository.full_name,beforeSha:payload.before,commitSha:payload.after,files,affectedSkills:getAffected(files),beforeAssessmentId:previous?._id,status:'running',detectedBy:'webhook',at:new Date()});
   try { const repo={owner:payload.repository.owner.login,name:payload.repository.name}; const result=await scanRepo(user._id,repo,previous?.sourceId,'webhook',files,deliveryId); event.afterAssessmentId=result.assessment._id; event.status='completed'; await event.save(); await Reassessment.create({userId:user._id,repository:event.repository,fromSha:event.beforeSha,toSha:event.commitSha,changedPaths:files,affectedSkills:event.affectedSkills,assessmentId:result.assessment._id,status:'completed',startedAt:event.at,completedAt:new Date()}); res.status(202).json({accepted:true,eventId:event._id}); } catch(e){event.status='failed';event.error=e.message;await event.save();throw e;}
